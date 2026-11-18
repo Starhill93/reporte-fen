@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reporte FEN · INABIF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ═══ Barra superior (no se imprime) ═══ -->
+<header class="barra no-print">
+  <div class="marca">Reporte FEN · INABIF</div>
+  <div class="archivo-info" id="archivoInfo" hidden></div>
+  <div class="acciones" id="acciones" hidden>
+    <button id="btnOpciones" type="button" aria-expanded="false">Opciones</button>
+    <button id="btnOtro" type="button">Cambiar archivo</button>
+    <button id="btnXlsx" type="button">Excel</button>
+    <button id="btnPng" type="button">Imagen</button>
+    <button id="btnPdf" type="button">PDF</button>
+    <button id="btnEnlace" type="button">Copiar enlace</button>
+    <button id="btnPresentar" type="button" class="pri">Presentar</button>
+  </div>
+</header>
+
+<!-- ═══ Opciones (cerradas por defecto) ═══ -->
+<section id="opciones" class="opciones no-print" hidden>
+  <div class="ctl ancho"><label for="selAct">Actividad</label><select id="selAct"></select></div>
+  <div class="ctl"><label for="selN1">Agrupar por</label><select id="selN1"></select></div>
+  <div class="ctl"><label for="selN2">Detalle por</label><select id="selN2"></select></div>
+  <div class="ctl" data-filtro><label for="fFuente">Fuente</label><select id="fFuente"></select></div>
+  <div class="ctl" data-filtro><label for="fUnidad">Unidad funcional</label><select id="fUnidad"></select></div>
+  <div class="ctl" data-filtro><label for="fDepto">Departamento</label><select id="fDepto"></select></div>
+  <div class="ctl"><label for="fDatos">Corte al</label><input type="date" id="fDatos"></div>
+  <div class="ctl chk"><label><input type="checkbox" id="chkCeros"> Mostrar filas en cero</label></div>
+  <div class="ctl chk"><button id="btnReset" type="button" class="reset">Restablecer filtros</button></div>
+</section>
+
+<!-- ═══ Carga del archivo ═══ -->
+<section id="carga" class="carga no-print">
+  <label class="zona" id="zona">
+    <input type="file" id="archivo" accept=".xlsx,.xlsm,.xls" hidden>
+    <div class="zona-titulo">Arrastra aquí el Excel del SIAF</div>
+    <div class="zona-sub">o haz clic para elegirlo</div>
+  </label>
+  <p class="privacidad">El archivo se procesa en tu computadora. No se sube a ningún servidor.</p>
+  <p id="estado" class="estado" role="status"></p>
+</section>
+
+<!-- ═══ Lámina 16:9 (mismo estilo que REPORTE_PRESUPUESTAL_INABIF.pptx) ═══ -->
+<div id="escenario" class="escenario" hidden>
+  <div class="marco" id="marco">
+    <article class="lamina" id="lamina">
+      <div class="banda"></div>
+      <img class="logo logo-mimp" src="img/mimp.png" alt="Ministerio de la Mujer y Poblaciones Vulnerables">
+      <img class="logo logo-inabif" src="img/inabif.png" alt="INABIF">
+      <img class="logo logo-pr" src="img/peru_responde.png" alt="Perú Responde">
+
+      <h1 class="titulo" id="lTitulo" contenteditable="true" spellcheck="false"></h1>
+      <div class="subtitulo" id="lSub"></div>
+
+      <section class="tarjeta kpis" id="kpis"></section>
+
+      <section class="tarjeta tabla-card">
+        <h2 class="tabla-tit" id="lTablaTit" contenteditable="true" spellcheck="false"></h2>
+        <div class="tabla-env" id="tablaEnv">
+          <table class="tabla" id="tabla">
+            <colgroup id="cols"></colgroup>
+            <thead id="thead"></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="nota" id="lNota"></div>
+    </article>
+  </div>
+
+  <div class="modal no-print" id="modal" hidden>
+    <div class="modal-caja" role="dialog" aria-modal="true" aria-labelledby="mTitulo">
+      <button class="modal-x" id="mCerrar" type="button" aria-label="Cerrar">×</button>
+      <h3 id="mTitulo"></h3>
+      <div id="mCuerpo"></div>
+    </div>
+  </div>
+</div>
+
+<script src="lib/xlsx.full.min.js"></script>
+<script src="lib/html2canvas.min.js"></script>
+<script src="img/logos.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
