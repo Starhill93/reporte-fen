@@ -209,6 +209,7 @@
 
   // ── Cálculo ───────────────────────────────────────────────────────────
   function nombreGrupo(n1, clave, ejemplo) {
+    if (ejemplo.c._nombre) return ejemplo.c._nombre;          // viene de un enlace compartido
     if (n1 !== "sec_func") return clave || "(sin dato)";
     const nom = nombres[clave] || NOMBRES_DEFECTO[clave] || ejemplo.c.DEPENDENCIA || sinCodigo(ejemplo.c.finalidad) || "";
     return `${clave}.- ${nom.toUpperCase()}`;
@@ -291,7 +292,7 @@
     $("lSub").textContent = `${ueCod}-${ej.c.sec_ejec}: ${ueNom}`;
     $("lNota").textContent = `Fuente: SIAF - MEF · Corte al ${corte}`;
     $("archivoInfo").textContent = ARCHIVO.enlace
-      ? `Reporte compartido por enlace · ${ARCHIVO.nombre}`
+      ? `Reporte compartido por enlace · corte al ${corte}`
       : `${ARCHIVO.nombre} · ${ARCHIVO.filas.toLocaleString("es-PE")} filas` + (ARCHIVO.avisos.length ? " · " + ARCHIVO.avisos.join(" · ") : "");
 
     // franja de indicadores
@@ -341,6 +342,11 @@
     const g = VISTA.grupos[gi], hj = hi == null ? null : g.hijos[hi];
     const obj = hj || g;
     $("mTitulo").textContent = hj ? `${g.nombre} · ${hj.nombre}` : g.nombre;
+    if (ARCHIVO.enlace) {   // el enlace solo trae la tabla; el detalle sale del Excel
+      $("mCuerpo").innerHTML = `<p class="m-nota">El detalle por específica de gasto y por mes está disponible al cargar el Excel del SIAF en la página.</p>`;
+      $("modal").hidden = false;
+      return;
+    }
     const esp = new Map();
     for (const r of obj.regs) {
       const k = r.c.EEGG || "(sin específica)";
@@ -410,19 +416,16 @@
   }
 
   // ── Enlace para compartir ─────────────────────────────────────────────
-  // Las filas de la actividad elegida viajan comprimidas en el "#" del enlace.
-  // Esa parte no se envía a ningún servidor: solo la lee el navegador de quien abre el enlace.
-  const aB64 = bytes => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
-  const deB64 = s => { const b = atob(s.replace(/-/g, "+").replace(/_/g, "/")); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; };
-  async function comprimir(texto) {
-    const st = new Blob([texto]).stream().pipeThrough(new CompressionStream("deflate-raw"));
-    return aB64(new Uint8Array(await new Response(st).arrayBuffer()));
-  }
-  async function descomprimir(s) {
-    const st = new Blob([deB64(s)]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-    return new Response(st).text();
-  }
-  const r2 = v => Math.round(v * 100) / 100;
+  // En el "#" del enlace viaja solo la tabla que se ve (grupos, filas y sus montos en céntimos),
+  // comprimida con lz-string (funciona en cualquier navegador, también el de WhatsApp).
+  // Esa parte del enlace no se envía a ningún servidor: solo la lee el navegador de quien lo abre.
+  const comprimir = t => LZString.compressToBase64(t).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const descomprimir = s => {
+    s = s.replace(/[^\w-]/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    return LZString.decompressFromBase64(s);
+  };
+  const cent = v => Math.round(v * 100);
 
   // El enlace se arma apenas cambia el reporte, para que al tocar el botón se copie/comparta
   // en el mismo instante (los celulares solo lo permiten durante el toque).
@@ -431,18 +434,14 @@
   const puedeCompartir = () => !!navigator.share && esMovil();
   const textoBoton = () => (puedeCompartir() ? "Compartir enlace" : "Copiar enlace");
 
-  async function prepararEnlace() {
+  function prepararEnlace() {
     if (!VISTA || document.body.classList.contains("solo-lectura")) return;
-    const v = ++enlaceVer;
-    ENLACE = null;
-    // solo viajan las filas del reporte que se está viendo (actividad y filtros actuales)
-    const datos = {
-      v: 1, a: ARCHIVO.nombre, corte: $("fDatos").value, n1: $("selN1").value, n2: $("selN2").value,
-      z: $("chkCeros").checked, k: CAMPOS,
-      r: VISTA.regs.map(r => [...CAMPOS.map(k => r.c[k]), r2(r.pto), r2(r.pim), r2(r.cert), r2(r.comp), ...r.compM.map(r2), ...r.devM.map(r2)]),
-    };
-    const url = location.href.split("#")[0] + "#r=" + await comprimir(JSON.stringify(datos));
-    if (v === enlaceVer) ENLACE = url;
+    const ej = VISTA.regs[0];
+    if (!ej) { ENLACE = null; return; }
+    // [act, ue, sec_ejec, corte, n1, n2, [[clave, nombre, [[fila, pim, cert, comp, dev], …]], …]]
+    const datos = [VISTA.act, ej.c.unidad_ejecutora, ej.c.sec_ejec, $("fDatos").value, VISTA.n1, VISTA.n2,
+      VISTA.grupos.map(g => [g.clave, g.nombre, g.hijos.map(h => [h.clave, cent(h.tot.pim), cent(h.tot.cert), cent(h.tot.comp), cent(h.tot.dev)])])];
+    ENLACE = location.href.split("#")[0].split("?")[0] + "#d=" + comprimir(JSON.stringify(datos));
   }
 
   function avisoBoton(t) {
@@ -461,8 +460,9 @@
   }
 
   function copiarEnlace() {
+    if (!ENLACE) prepararEnlace();
     const url = ENLACE;
-    if (!url) { avisoBoton("Preparando…"); prepararEnlace(); return; }
+    if (!url) { avisoBoton("Sin datos"); return; }
     if (location.protocol === "file:")
       $("archivoInfo").textContent = "Ojo: abriste la página desde tu PC; el enlace solo servirá a otros cuando la página esté publicada.";
     if (puedeCompartir()) {
@@ -484,26 +484,23 @@
     else manual();
   }
 
-  async function abrirEnlace() {
-    const m = location.hash.match(/^#r=([\w-]+)$/);
+  function abrirEnlace() {
+    const h = decodeURIComponent(location.hash || "");
+    if (/^#r=/.test(h)) { estado("Este enlace es de una versión anterior de la página. Pide uno nuevo o sube el Excel.", true); return; }
+    const m = h.match(/^#d=(.+)$/);
     if (!m) return;
     try {
-      const d = JSON.parse(await descomprimir(m[1]));
-      const nk = d.k.length;
-      REG = d.r.map(row => {
+      const [act, ue, sec, corte, n1, n2, grupos] = JSON.parse(descomprimir(m[1]));
+      REG = [];
+      for (const [k1, nombre, hijos] of grupos) for (const [k2, pim, cert, comp, dev] of hijos) {
         const r = vacio();
-        r.c = {};
-        d.k.forEach((k, i) => { r.c[k] = row[i]; });
-        [r.pto, r.pim, r.cert, r.comp] = row.slice(nk, nk + 4);
-        r.compM = row.slice(nk + 4, nk + 16);
-        r.devM = row.slice(nk + 16, nk + 28);
-        r.dev = r.devM.reduce((a, b) => a + b, 0);
-        return r;
-      });
-      ARCHIVO = { nombre: d.a, fecha: new Date(), filas: REG.length, avisos: [], corte: d.corte, enlace: true };
+        r.pim = pim / 100; r.cert = cert / 100; r.comp = comp / 100; r.dev = dev / 100;
+        r.c = { activ_obra_accinv: act, unidad_ejecutora: ue, sec_ejec: sec, [n1]: k1, [n2]: k2, _nombre: nombre };
+        REG.push(r);
+      }
+      ARCHIVO = { nombre: "", fecha: new Date(), filas: REG.length, avisos: [], corte, enlace: true };
       prepararControles();
-      $("selN1").value = d.n1; $("selN2").value = d.n2;
-      $("chkCeros").checked = !!d.z;
+      $("selN1").value = n1; $("selN2").value = n2;
       document.body.classList.add("solo-lectura");     // el enlace muestra solo el reporte, sin opciones
       mostrar(true);
     } catch (e) {
