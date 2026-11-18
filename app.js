@@ -326,6 +326,8 @@
     env.style.setProperty("--letra", Math.max(9, Math.min(14, fila * 0.64)) + "px");
     env.style.setProperty("--letra-cab", Math.max(9, Math.min(12.5, fila * 0.6)) + "px");
     $("thead").querySelector("tr").style.height = fila * 1.4 + "px";
+
+    prepararEnlace();
   }
 
   // ── Escala de la lámina (diseñada a 1280×720) ─────────────────────────
@@ -422,7 +424,17 @@
   }
   const r2 = v => Math.round(v * 100) / 100;
 
-  async function copiarEnlace() {
+  // El enlace se arma apenas cambia el reporte, para que al tocar el botón se copie/comparta
+  // en el mismo instante (los celulares solo lo permiten durante el toque).
+  let ENLACE = null, enlaceVer = 0;
+  const esMovil = () => window.matchMedia("(pointer: coarse)").matches;
+  const puedeCompartir = () => !!navigator.share && esMovil();
+  const textoBoton = () => (puedeCompartir() ? "Compartir enlace" : "Copiar enlace");
+
+  async function prepararEnlace() {
+    if (!VISTA || document.body.classList.contains("solo-lectura")) return;
+    const v = ++enlaceVer;
+    ENLACE = null;
     // solo viajan las filas del reporte que se está viendo (actividad y filtros actuales)
     const datos = {
       v: 1, a: ARCHIVO.nombre, corte: $("fDatos").value, n1: $("selN1").value, n2: $("selN2").value,
@@ -430,18 +442,46 @@
       r: VISTA.regs.map(r => [...CAMPOS.map(k => r.c[k]), r2(r.pto), r2(r.pim), r2(r.cert), r2(r.comp), ...r.compM.map(r2), ...r.devM.map(r2)]),
     };
     const url = location.href.split("#")[0] + "#r=" + await comprimir(JSON.stringify(datos));
-    let ok = false;
-    try { await navigator.clipboard.writeText(url); ok = true; } catch {
-      const ta = Object.assign(document.createElement("textarea"), { value: url });
-      document.body.appendChild(ta); ta.select();
-      try { ok = document.execCommand("copy"); } catch { /* sin portapapeles */ }
-      ta.remove();
-    }
+    if (v === enlaceVer) ENLACE = url;
+  }
+
+  function avisoBoton(t) {
     const b = $("btnEnlace");
-    b.textContent = ok ? "Enlace copiado ✓" : "No se pudo copiar";
-    setTimeout(() => { b.textContent = "Copiar enlace"; }, 2500);
+    b.textContent = t;
+    setTimeout(() => { b.textContent = textoBoton(); }, 2500);
+  }
+
+  function mostrarEnlaceManual(url) {
+    $("mTitulo").textContent = "Enlace del reporte";
+    $("mCuerpo").innerHTML = `<p class="m-nota">Copia este enlace y envíalo (mantén presionado si estás en el celular):</p>
+      <textarea class="enlace-txt" readonly rows="4">${esc(url)}</textarea>`;
+    $("modal").hidden = false;
+    const ta = $("mCuerpo").querySelector("textarea");
+    ta.focus(); ta.select();
+  }
+
+  function copiarEnlace() {
+    const url = ENLACE;
+    if (!url) { avisoBoton("Preparando…"); prepararEnlace(); return; }
     if (location.protocol === "file:")
       $("archivoInfo").textContent = "Ojo: abriste la página desde tu PC; el enlace solo servirá a otros cuando la página esté publicada.";
+    if (puedeCompartir()) {
+      navigator.share({ title: "Reporte FEN · INABIF", text: $("lTitulo").textContent, url })
+        .catch(e => { if (e && e.name !== "AbortError") mostrarEnlaceManual(url); });
+      return;
+    }
+    const manual = () => {
+      const ta = Object.assign(document.createElement("textarea"), { value: url });
+      ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, url.length);
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch { /* sin portapapeles */ }
+      ta.remove();
+      if (ok) avisoBoton("Enlace copiado ✓"); else mostrarEnlaceManual(url);
+    };
+    if (navigator.clipboard && window.isSecureContext)
+      navigator.clipboard.writeText(url).then(() => avisoBoton("Enlace copiado ✓"), manual);
+    else manual();
   }
 
   async function abrirEnlace() {
@@ -502,6 +542,7 @@
   $("btnPng").addEventListener("click", exportarPng);
   $("btnPdf").addEventListener("click", () => window.print());
   $("btnEnlace").addEventListener("click", copiarEnlace);
+  $("btnEnlace").textContent = textoBoton();
   $("btnReset").addEventListener("click", () => { prepararControles(); render(); });
   // borra las preferencias que guardaban versiones anteriores (actividad / agrupación)
   ["reporteFen.act", "reporteFen.n1", "reporteFen.n2"].forEach(k => { try { localStorage.removeItem(k); } catch { /* nada */ } });

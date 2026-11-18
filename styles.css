@@ -126,6 +126,7 @@ button { font: inherit; cursor: pointer; }
 .m-tabla tfoot td { font-weight: 700; border-top: 1.3px solid var(--gris); }
 .m-env { overflow-x: auto; }
 .m-nota { font-size: 13px; color: var(--gris); }
+.enlace-txt { width: 100%; font: 12px/1.4 monospace; padding: 8px; border: 1px solid #cfd6df; border-radius: 4px; color: var(--texto); resize: none; word-break: break-all; }
 
 /* ── Impresión: una página 16:9 ────────────────────── */
 @page { size: 1280px 720px; margin: 0; }
