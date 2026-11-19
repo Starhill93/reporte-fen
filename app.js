@@ -14,8 +14,6 @@
     "215": "BIENES Y SERVICIOS",
   };
   const MESES = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SET", "OCT", "NOV", "DIC"];
-  const MESES_LARGOS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
-    "setiembre", "octubre", "noviembre", "diciembre"];
   const NIVEL1 = [
     { id: "sec_func", t: "Meta" },
     { id: "Genérica (det)", t: "Genérica" },
@@ -42,12 +40,6 @@
   const CAMPOS = [...new Set([...NIVEL1, ...NIVEL2].map(n => n.id).concat(FILTROS.map(f => f.col),
     ["activ_obra_accinv", "unidad_ejecutora", "sec_ejec", "DEPENDENCIA", "finalidad", "EEGG"]))];
 
-  // Tokens y medidas del PPT (scraper_inabif.py)
-  const C = { rojo: "#B51F35", navy: "#0A3A70", coral: "#E05B55", ocre: "#CE985C", verde: "#2E7D6E", gestion: "#5B6B85", linea: "#E6EAF0" };
-  const IN = 128, PT = 128 / 72;                       // 1 in y 1 pt en px de la lámina
-  const MIN_FILA = { 6: 0.145, 5.5: 0.135, 5: 0.128 }; // alto mínimo de fila (in) según la letra
-  const semaforo = p => (p < 0.6 ? C.rojo : p < 0.9 ? C.ocre : C.verde);
-
   // ── Estado ────────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
   let REG = [], ARCHIVO = null, VISTA = null;
@@ -66,7 +58,7 @@
   const fpct = v => `${(v * 100).toFixed(1)}%`;
   const soles = v => {
     const a = Math.abs(v);
-    if (a >= 1e6) return `S/ ${fmt(v / 1e6, 2)} mill`;
+    if (a >= 1e6) return `S/ ${fmt(v / 1e6, 2).replace(/\.?0+$/, "")} mill`;   // 10.90 → 10.9
     if (a >= 1e5) return `S/ ${fmt(v / 1e3, 0)} mil`;
     if (a >= 1e3) return `S/ ${fmt(v / 1e3, 1)} mil`;
     return `S/ ${fmt(v, 0)}`;
@@ -75,8 +67,20 @@
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const natural = (a, b) => a.localeCompare(b, "es", { numeric: true, sensitivity: "base" });
   const sinCodigo = s => s.replace(/^[\d.]+\s*\.?\s*/, "");
-  const ddmmyyyy = iso => { if (!iso) return ""; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; };
-  const isoDe = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const p2 = n => String(n).padStart(2, "0");
+  // fecha y hora de proceso como "AAAA-MM-DDTHH:MM" (valor del control datetime-local)
+  const marcaDe = d => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  const partes = v => {
+    const [f, h = "00:00"] = String(v || "").split("T");
+    const [y, m, d] = f.split("-");
+    const [hh, mm] = h.split(":");
+    return { y, m, d, hh, mm };
+  };
+  // "18/11/2026 - 19:30 p.m."
+  const fechaHora = v => { if (!v) return ""; const p = partes(v); return `${p.d}/${p.m}/${p.y} - ${p.hh}:${p.mm} ${+p.hh < 12 ? "a.m." : "p.m."}`; };
+  // "18.11.2026-19.30"
+  const fechaArchivo = v => { if (!v) return "sin_fecha"; const p = partes(v); return `${p.d}.${p.m}.${p.y}-${p.hh}.${p.mm}`; };
+  const oracion = s => (s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s);
   const vacio = () => ({ pto: 0, pim: 0, cert: 0, comp: 0, dev: 0, compM: Array(12).fill(0), devM: Array(12).fill(0) });
   const acumular = (a, r) => {
     a.pto += r.pto; a.pim += r.pim; a.cert += r.cert; a.comp += r.comp; a.dev += r.dev;
@@ -86,19 +90,16 @@
   const esCero = r => [r.pto, r.pim, r.cert, r.comp, r.dev].every(v => Math.abs(v) < 0.005);
   const estado = (m, error = false) => { const e = $("estado"); e.textContent = m; e.classList.toggle("error", error); };
 
-  // Columnas de la tabla (las del reporte original del SIAF, sin PTO inicial)
+  // Columnas de la tabla: concepto, PIM, certificado, compromiso y devengado con sus %
   const COLS = [
-    { t: "DETALLE / CONDICIÓN", w: 2.6, a: "l" },
-    { t: "PIM S/", w: 0.85, f: t => miles(t.pim) },
-    { t: "CERT. S/", w: 0.95, f: t => dec(t.cert) },
-    { t: "CERT. %", w: 0.55, f: t => fpct(pct(t.cert, t.pim)) },
-    { t: "SALDxCERT S/", w: 0.92, f: t => dec(t.pim - t.cert) },
-    { t: "COMP. ANUAL S/", w: 0.98, f: t => dec(t.comp) },
-    { t: "COMP. ANUAL %", w: 0.72, f: t => fpct(pct(t.comp, t.pim)) },
-    { t: "SALDxCOMP S/", w: 0.92, f: t => dec(t.pim - t.comp) },
-    { t: "EJEC. S/", w: 0.82, f: t => dec(t.dev), ejec: true },
-    { t: "EJEC. %", w: 0.55, f: t => fpct(pct(t.dev, t.pim)) },
-    { t: "SALDxDEVENG S/", w: 0.98, f: t => dec(t.pim - t.dev) },
+    { t: "CONCEPTO", w: 2.65, a: "l" },
+    { t: "PIM", w: 1.3, f: t => miles(t.pim) },
+    { t: "CERTIFICADO", w: 1.7, f: t => miles(t.cert) },
+    { t: "%", w: 1.2, p: t => pct(t.cert, t.pim) },
+    { t: "COMPROMISO", w: 1.7, f: t => miles(t.comp) },
+    { t: "%", w: 1.1, p: t => pct(t.comp, t.pim) },
+    { t: "DEVENGADO", w: 1.4, f: t => miles(t.dev) },
+    { t: "%", w: 0.85, p: t => pct(t.dev, t.pim) },
   ];
 
   // ── Lectura del Excel ─────────────────────────────────────────────────
@@ -147,7 +148,8 @@
       }
       if (!REG.length) throw new Error("La hoja no tiene filas de datos.");
 
-      ARCHIVO = { nombre: file.name, fecha: new Date(file.lastModified), filas: REG.length, avisos };
+      // la fecha y hora del reporte es el momento en que se lee y procesa el archivo
+      ARCHIVO = { nombre: file.name, procesado: marcaDe(new Date()), filas: REG.length, avisos };
       if (location.hash) history.replaceState(null, "", location.pathname + location.search);
       document.body.classList.remove("solo-lectura");
       prepararControles();
@@ -157,15 +159,6 @@
       console.error(e);
       estado(e.message || "No se pudo leer el archivo.", true);
     }
-  }
-
-  function fechaDelNombre(nombre) {
-    const n = nombre.toLowerCase();
-    let m = n.match(/(\d{1,2})\s*[-_ ]?\s*(enero|febrero|marzo|abril|mayo|junio|julio|agosto|setiembre|septiembre|octubre|noviembre|diciembre)\s*[-_ ]?\s*(\d{4})/);
-    if (m) return new Date(+m[3], m[2] === "septiembre" ? 8 : MESES_LARGOS.indexOf(m[2]), +m[1]);
-    m = n.match(/(\d{1,2})[.\-_/](\d{1,2})[.\-_/](\d{2,4})/);
-    if (m) return new Date(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[2] - 1, +m[1]);
-    return null;
   }
 
   // ── Controles ─────────────────────────────────────────────────────────
@@ -183,11 +176,8 @@
     opciones($("selN2"), NIVEL2.map(n => [n.id, n.t]), "CONDICION 2");
     $("chkCeros").checked = false;
     prepararFiltros();
-    // el Excel del SIAF descargado el día X trae datos con corte al día X-1
-    if (ARCHIVO.corte) { $("fDatos").value = ARCHIVO.corte; return; }
-    const f = fechaDelNombre(ARCHIVO.nombre) || ARCHIVO.fecha;
-    const d = new Date(f); d.setDate(d.getDate() - 1);
-    $("fDatos").value = isoDe(d);
+    // fecha y hora = momento en que se procesó el archivo (o la que trae el enlace compartido)
+    $("fDatos").value = ARCHIVO.procesado;
   }
 
   function prepararFiltros() {
@@ -211,8 +201,8 @@
   function nombreGrupo(n1, clave, ejemplo) {
     if (ejemplo.c._nombre) return ejemplo.c._nombre;          // viene de un enlace compartido
     if (n1 !== "sec_func") return clave || "(sin dato)";
-    const nom = nombres[clave] || NOMBRES_DEFECTO[clave] || ejemplo.c.DEPENDENCIA || sinCodigo(ejemplo.c.finalidad) || "";
-    return `${clave}.- ${nom.toUpperCase()}`;
+    const nom = nombres[clave] || NOMBRES_DEFECTO[clave] || ejemplo.c.DEPENDENCIA || sinCodigo(ejemplo.c.finalidad) || clave;
+    return oracion(nom);                                       // "Mantenimiento e infraestructura", sin número de meta
   }
 
   function calcular() {
@@ -243,21 +233,8 @@
   }
 
   // ── Componentes de la lámina ──────────────────────────────────────────
-  function dona(p, color) {
-    // doughnut de PowerPoint: área 94 % del cuadro, agujero 58 %
-    const R = 47, r = R * 0.58, rm = (R + r) / 2, ancho = R - r, L = 2 * Math.PI * rm;
-    const v = Math.max(0, Math.min(1, p));
-    const arco = v >= 0.9999
-      ? `<circle cx="50" cy="50" r="${rm}" fill="none" stroke="${color}" stroke-width="${ancho}"/>`
-      : v > 0 ? `<circle cx="50" cy="50" r="${rm}" fill="none" stroke="${color}" stroke-width="${ancho}" stroke-dasharray="${v * L} ${L}" transform="rotate(-90 50 50)"/>` : "";
-    return `<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="${rm}" fill="none" stroke="${C.linea}" stroke-width="${ancho}"/>${arco}</svg>`;
-  }
-
-  function kpi(tipo, color, val, lbl, sub, p) {
-    const izq = tipo === "dona" ? dona(p, color)
-      : `<div class="insignia" style="background:${color}"><img src="${(window.LOGOS && window.LOGOS.monedas) || "img/monedas.png"}" alt=""></div>`;
-    return `<div class="kpi ${tipo === "dona" ? "con-dona" : ""}">${izq}<div class="kpi-txt">` +
-      `<div class="kpi-val" style="color:${color}">${val}</div><div class="kpi-lbl">${lbl}</div><div class="kpi-sub">${sub}</div></div></div>`;
+  function kpi(val, lbl, sub) {
+    return `<div class="kpi"><div class="kpi-val">${val}</div><div class="kpi-lbl">${lbl}</div><div class="kpi-sub">${sub}</div></div>`;
   }
 
   // achica la letra hasta que el texto quepa en una línea (máx. y mín. en px)
@@ -268,65 +245,45 @@
   }
 
   function celdas(t, etiqueta) {
-    return COLS.map(c => c.a === "l"
-      ? `<td class="l">${esc(etiqueta)}</td>`
-      : `<td${c.ejec ? ' class="ejec"' : ""}>${c.f(t)}</td>`).join("");
+    return COLS.map(c => {
+      if (c.a === "l") return `<div class="c l">${esc(etiqueta)}</div>`;
+      if (c.p) return `<div class="c p">${(c.p(t) * 100).toFixed(1)}</div>`;
+      return `<div class="c">${c.f(t)}</div>`;
+    }).join("");
   }
 
   // ── Render ────────────────────────────────────────────────────────────
   function render() {
     const V = VISTA = calcular(), T = V.total;
-    const ej = REG.find(r => r.c.activ_obra_accinv === V.act) || REG[0];
     const esFen = V.act.startsWith(ACT_FEN);
-    const codAct = V.act.split(".")[0];
-    const ueNom = ej.c.unidad_ejecutora.replace(/^\s*\d+\.\s*/, "");
-    const ueCod = (ej.c.unidad_ejecutora.match(/^\s*(\d+)/) || [, ""])[1];
-    const corte = ddmmyyyy($("fDatos").value);
-    const n1t = NIVEL1.find(n => n.id === V.n1).t.toLowerCase(), n2t = NIVEL2.find(n => n.id === V.n2).t.toLowerCase();
-    const marco = esFen ? "EN EL MARCO DEL FENÓMENO EL NIÑO" : `EN ${sinCodigo(V.act).toUpperCase()}`;
-    const marcoSinTilde = esFen ? "EN EL MARCO DEL FENOMENO EL NIÑO" : marco;
+    const cuando = fechaHora($("fDatos").value);
 
-    // títulos tal cual del reporte original
-    $("lTitulo").textContent = `PRESUPUESTO ASIGNADO ${marco} POR GENÉRICA DE GASTO`;
-    ajustar($("lTitulo"), 24, 16);
-    $("lSub").textContent = `${ueCod}-${ej.c.sec_ejec}: ${ueNom}`;
-    $("lNota").textContent = `Fuente: SIAF - MEF · Corte al ${corte}`;
+    const base = esFen ? "EJECUCIÓN DE RECURSOS FEN" : `EJECUCIÓN DE RECURSOS · ${sinCodigo(V.act).toUpperCase()}`;
+    $("lTitulo").textContent = cuando ? `${base} – ${cuando}` : base;
+    ajustar($("lTitulo"), 30, 16);
+    $("lNota").textContent = "Fuente: SIAF - MEF";
     $("archivoInfo").textContent = ARCHIVO.enlace
-      ? `Reporte compartido por enlace · corte al ${corte}`
-      : `${ARCHIVO.nombre} · ${ARCHIVO.filas.toLocaleString("es-PE")} filas` + (ARCHIVO.avisos.length ? " · " + ARCHIVO.avisos.join(" · ") : "");
+      ? `Reporte compartido por enlace · ${cuando}`
+      : `${ARCHIVO.nombre} · ${ARCHIVO.filas.toLocaleString("es-PE")} filas · procesado ${cuando}` + (ARCHIVO.avisos.length ? " · " + ARCHIVO.avisos.join(" · ") : "");
 
     // franja de indicadores
     $("kpis").innerHTML =
-      kpi("insignia", C.navy, soles(T.pim), "PIM", `S/ ${miles(T.pim)}`) +
-      kpi("dona", C.ocre, fpct(pct(T.cert, T.pim)), "Certificado", soles(T.cert), pct(T.cert, T.pim)) +
-      kpi("dona", C.coral, fpct(pct(T.comp, T.pim)), "Compromiso anual", soles(T.comp), pct(T.comp, T.pim)) +
-      kpi("dona", C.rojo, fpct(pct(T.dev, T.pim)), "Devengado", soles(T.dev), pct(T.dev, T.pim));
+      kpi(soles(T.pim), "PIM", `S/ ${miles(T.pim)}`) +
+      kpi(fpct(pct(T.cert, T.pim)), "Certificado", soles(T.cert)) +
+      kpi(fpct(pct(T.comp, T.pim)), "Compromiso", soles(T.comp)) +
+      kpi(fpct(pct(T.dev, T.pim)), "Devengado", soles(T.dev));
 
-    // tabla (misma lógica de tamaño de letra y alto de fila que el PPT)
-    $("lTablaTit").textContent = esFen && V.n1 === "sec_func" && V.n2 === "CONDICION 2"
-      ? `EJECUCION PRESUPUESTAL ${marcoSinTilde} POR ACTIVIDAD Y GENERICA DE GASTO`
-      : `EJECUCION PRESUPUESTAL ${marcoSinTilde} POR ${n1t.toUpperCase()} Y ${n2t.toUpperCase()}`;
-    ajustar($("lTablaTit"), 17, 12);
-    const tot = COLS.reduce((s, c) => s + c.w, 0);
-    $("cols").innerHTML = COLS.map(c => `<col style="width:${(c.w / tot * 100).toFixed(3)}%">`).join("");
-    $("thead").innerHTML = `<tr>${COLS.map(c => `<th class="${c.a || ""}">${c.t}</th>`).join("")}</tr>`;
+    // tabla: solo los conceptos (sin detalle) y el total
+    $("tablaEnv").style.setProperty("--cols", COLS.map(c => c.w + "fr").join(" "));
+    $("thead").innerHTML = `<div class="trow cab">${COLS.map(c => `<div>${c.t}</div>`).join("")}</div>`;
+    $("tbody").innerHTML = V.grupos.map((g, gi) => `<div class="trow" data-g="${gi}">${celdas(g.tot, g.nombre)}</div>`).join("") +
+      `<div class="trow total">${celdas(T, "TOTAL")}</div>`;
 
-    let html = "", nFilas = 0;
-    V.grupos.forEach((g, gi) => {
-      html += `<tr class="n0" data-g="${gi}">${celdas(g.tot, g.nombre)}</tr>`; nFilas++;
-      g.hijos.forEach((h, hi) => { html += `<tr class="n1" data-g="${gi}" data-h="${hi}">${celdas(h.tot, h.nombre)}</tr>`; nFilas++; });
-    });
-    html += `<tr class="total">${celdas(T, "Total")}</tr>`; nFilas++;
-    $("tbody").innerHTML = html;
-
-    // alto de fila y letra según cuántas filas hay (la cabecera cuenta 1.4 filas)
-    const env = $("tablaEnv");
-    const disp = env.clientHeight || 352;
-    const fila = Math.max(11, Math.min(26, disp / (nFilas + 1.4)));
-    env.style.setProperty("--fila", fila + "px");
-    env.style.setProperty("--letra", Math.max(9, Math.min(14, fila * 0.64)) + "px");
-    env.style.setProperty("--letra-cab", Math.max(9, Math.min(12.5, fila * 0.6)) + "px");
-    $("thead").querySelector("tr").style.height = fila * 1.4 + "px";
+    // si hay muchas filas se achica todo (letra, alto y márgenes) hasta que la tabla y la fuente quepan en la lámina
+    const card = $("tablaCard"), LIMITE = 705;               // px de la lámina
+    let k = 1;
+    card.style.setProperty("--k", k);
+    while (card.offsetTop + card.offsetHeight > LIMITE && k > 0.45) { k -= 0.05; card.style.setProperty("--k", k.toFixed(2)); }
 
     prepararEnlace();
   }
@@ -371,23 +328,19 @@
   // ── Exportar ──────────────────────────────────────────────────────────
   function nombreSalida(ext) {
     const act = VISTA.act.split(".")[0];
-    return `Reporte_${act === ACT_FEN ? "FEN" : act}_corte_${$("fDatos").value || "sin_fecha"}.${ext}`;
+    return `Reporte_financiero_${act === ACT_FEN ? "FEN" : act}_${fechaArchivo($("fDatos").value)}.${ext}`;
   }
 
   function exportarExcel() {
     const V = VISTA;
-    const X = [["PIM S/", t => t.pim, "#,##0"], ["CERT. S/", t => t.cert, "#,##0.00"],
-      ["CERT. %", t => pct(t.cert, t.pim), "0.0%"], ["SALDO x CERT", t => t.pim - t.cert, "#,##0.00"],
-      ["COMP. ANUAL S/", t => t.comp, "#,##0.00"], ["COMP. %", t => pct(t.comp, t.pim), "0.0%"],
-      ["SALDO x COMP", t => t.pim - t.comp, "#,##0.00"], ["EJEC. S/", t => t.dev, "#,##0.00"],
-      ["EJEC. %", t => pct(t.dev, t.pim), "0.0%"], ["SALDO x DEVENG", t => t.pim - t.dev, "#,##0.00"]];
+    const X = [["PIM", t => t.pim, "#,##0"], ["CERTIFICADO", t => t.cert, "#,##0"],
+      ["%", t => pct(t.cert, t.pim), "0.0%"], ["COMPROMISO", t => t.comp, "#,##0"],
+      ["%", t => pct(t.comp, t.pim), "0.0%"], ["DEVENGADO", t => t.dev, "#,##0"],
+      ["%", t => pct(t.dev, t.pim), "0.0%"]];
     const fila = (etq, t) => [etq, ...X.map(c => c[1](t))];
-    const aoa = [[$("lSub").textContent], [$("lTablaTit").textContent], [$("lNota").textContent], [], ["DETALLE / CONDICIÓN", ...X.map(c => c[0])]];
-    for (const g of V.grupos) {
-      aoa.push(fila(g.nombre, g.tot));
-      for (const h of g.hijos) aoa.push(fila("    " + h.nombre, h.tot));
-    }
-    aoa.push(fila("Total", V.total));
+    const aoa = [[$("lTitulo").textContent], [$("lNota").textContent], [], [], ["CONCEPTO", ...X.map(c => c[0])]];
+    for (const g of V.grupos) aoa.push(fila(g.nombre, g.tot));
+    aoa.push(fila("TOTAL", V.total));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     for (let r = 5; r < aoa.length; r++) X.forEach((c, j) => {
       const cell = ws[XLSX.utils.encode_cell({ r, c: j + 1 })];
@@ -402,7 +355,7 @@
   async function exportarPng() {
     document.body.classList.add("capturando");
     try {
-      const canvas = await html2canvas($("lamina"), { scale: 2, width: 1280, height: 720, backgroundColor: "#F0F3F7" });
+      const canvas = await html2canvas($("lamina"), { scale: 2, width: 1280, height: 720, backgroundColor: "#FFFFFF" });
       const a = document.createElement("a");
       a.download = nombreSalida("png");
       a.href = canvas.toDataURL("image/png");
@@ -438,10 +391,10 @@
     if (!VISTA || document.body.classList.contains("solo-lectura")) return;
     const ej = VISTA.regs[0];
     if (!ej) { ENLACE = null; return; }
-    // [act, ue, sec_ejec, corte, n1, n2, [[clave, nombre, [[fila, pim, cert, comp, dev], …]], …]]
-    const datos = [VISTA.act, ej.c.unidad_ejecutora, ej.c.sec_ejec, $("fDatos").value, VISTA.n1, VISTA.n2,
-      VISTA.grupos.map(g => [g.clave, g.nombre, g.hijos.map(h => [h.clave, cent(h.tot.pim), cent(h.tot.cert), cent(h.tot.comp), cent(h.tot.dev)])])];
-    ENLACE = location.href.split("#")[0].split("?")[0] + "#d=" + comprimir(JSON.stringify(datos));
+    // [act, ue, sec_ejec, corte, n1, [[clave, nombre, pim, cert, comp, dev], …]]  (montos en céntimos)
+    const datos = [VISTA.act, ej.c.unidad_ejecutora, ej.c.sec_ejec, $("fDatos").value, VISTA.n1,
+      VISTA.grupos.map(g => [g.clave, g.nombre, cent(g.tot.pim), cent(g.tot.cert), cent(g.tot.comp), cent(g.tot.dev)])];
+    ENLACE = location.href.split("#")[0].split("?")[0] + "#e=" + comprimir(JSON.stringify(datos));
   }
 
   function avisoBoton(t) {
@@ -486,21 +439,22 @@
 
   function abrirEnlace() {
     const h = decodeURIComponent(location.hash || "");
-    if (/^#r=/.test(h)) { estado("Este enlace es de una versión anterior de la página. Pide uno nuevo o sube el Excel.", true); return; }
-    const m = h.match(/^#d=(.+)$/);
+    if (/^#[rd]=/.test(h)) { estado("Este enlace es de una versión anterior de la página. Pide uno nuevo o sube el Excel.", true); return; }
+    const m = h.match(/^#e=(.+)$/);
     if (!m) return;
     try {
-      const [act, ue, sec, corte, n1, n2, grupos] = JSON.parse(descomprimir(m[1]));
-      REG = [];
-      for (const [k1, nombre, hijos] of grupos) for (const [k2, pim, cert, comp, dev] of hijos) {
+      const [act, ue, sec, corte, n1, grupos] = JSON.parse(descomprimir(m[1]));
+      REG = grupos.map(([k1, nombre, pim, cert, comp, dev]) => {
         const r = vacio();
         r.pim = pim / 100; r.cert = cert / 100; r.comp = comp / 100; r.dev = dev / 100;
-        r.c = { activ_obra_accinv: act, unidad_ejecutora: ue, sec_ejec: sec, [n1]: k1, [n2]: k2, _nombre: nombre };
-        REG.push(r);
-      }
-      ARCHIVO = { nombre: "", fecha: new Date(), filas: REG.length, avisos: [], corte, enlace: true };
+        r.c = { activ_obra_accinv: act, unidad_ejecutora: ue, sec_ejec: sec, [n1]: k1, _nombre: nombre };
+        return r;
+      });
+      // enlaces anteriores traían solo la fecha (AAAA-MM-DD): se muestran a las 00:00
+      const procesado = corte && !corte.includes("T") ? corte + "T00:00" : corte;
+      ARCHIVO = { nombre: "", filas: REG.length, avisos: [], procesado, enlace: true };
       prepararControles();
-      $("selN1").value = n1; $("selN2").value = n2;
+      $("selN1").value = n1;
       document.body.classList.add("solo-lectura");     // el enlace muestra solo el reporte, sin opciones
       mostrar(true);
     } catch (e) {
@@ -521,7 +475,7 @@
   ["selN1", "selN2", "fFuente", "fUnidad", "fDepto", "fDatos", "chkCeros"].forEach(id => $(id).addEventListener("change", render));
 
   $("tbody").addEventListener("click", e => {
-    const tr = e.target.closest("tr");
+    const tr = e.target.closest(".trow");
     if (tr && tr.dataset.g != null) abrirDetalle(+tr.dataset.g, tr.dataset.h == null ? null : +tr.dataset.h);
   });
   $("mCerrar").addEventListener("click", () => { $("modal").hidden = true; });

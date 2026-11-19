@@ -20,8 +20,7 @@
     <button id="btnOtro" type="button">Cambiar archivo</button>
     <button id="btnXlsx" type="button">Excel</button>
     <button id="btnPng" type="button">Imagen</button>
-    <button id="btnPdf" type="button">PDF</button>
-    <button id="btnEnlace" type="button">Copiar enlace</button>
+    <button id="btnPdf" type="button">PDF</button>    <button id="btnEnlace" type="button">Copiar enlace</button>
     <button id="btnPresentar" type="button" class="pri">Presentar</button>
   </div>
 </header>
@@ -30,11 +29,11 @@
 <section id="opciones" class="opciones no-print" hidden>
   <div class="ctl ancho"><label for="selAct">Actividad</label><select id="selAct"></select></div>
   <div class="ctl"><label for="selN1">Agrupar por</label><select id="selN1"></select></div>
-  <div class="ctl"><label for="selN2">Detalle por</label><select id="selN2"></select></div>
+  <div class="ctl" hidden><label for="selN2">Detalle por</label><select id="selN2"></select></div>
   <div class="ctl" data-filtro><label for="fFuente">Fuente</label><select id="fFuente"></select></div>
   <div class="ctl" data-filtro><label for="fUnidad">Unidad funcional</label><select id="fUnidad"></select></div>
   <div class="ctl" data-filtro><label for="fDepto">Departamento</label><select id="fDepto"></select></div>
-  <div class="ctl"><label for="fDatos">Corte al</label><input type="date" id="fDatos"></div>
+  <div class="ctl"><label for="fDatos">Fecha y hora del reporte</label><input type="datetime-local" id="fDatos"></div>
   <div class="ctl chk"><label><input type="checkbox" id="chkCeros"> Mostrar filas en cero</label></div>
   <div class="ctl chk"><button id="btnReset" type="button" class="reset">Restablecer filtros</button></div>
 </section>
@@ -60,22 +59,18 @@
       <img class="logo logo-pr" src="img/peru_responde.png" alt="Perú Responde">
 
       <h1 class="titulo" id="lTitulo" contenteditable="true" spellcheck="false"></h1>
-      <div class="subtitulo" id="lSub"></div>
 
       <section class="tarjeta kpis" id="kpis"></section>
 
-      <section class="tarjeta tabla-card">
-        <h2 class="tabla-tit" id="lTablaTit" contenteditable="true" spellcheck="false"></h2>
+      <section class="tarjeta tabla-card" id="tablaCard">
         <div class="tabla-env" id="tablaEnv">
-          <table class="tabla" id="tabla">
-            <colgroup id="cols"></colgroup>
-            <thead id="thead"></thead>
-            <tbody id="tbody"></tbody>
-          </table>
+          <div class="tabla" id="tabla">
+            <div id="thead"></div>
+            <div id="tbody"></div>
+          </div>
         </div>
+        <div class="nota" id="lNota"></div>
       </section>
-
-      <div class="nota" id="lNota"></div>
     </article>
   </div>
 
