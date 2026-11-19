@@ -153,160 +153,11 @@
       if (location.hash) history.replaceState(null, "", location.pathname + location.search);
       document.body.classList.remove("solo-lectura");
       prepararControles();
-      registrarCorte(file);
       estado("");
       mostrar(true);
-      if (VARIAC) abrirVariaciones();          // alerta: se abre sola cuando hubo movimiento
     } catch (e) {
       console.error(e);
       estado(e.message || "No se pudo leer el archivo.", true);
-    }
-  }
-
-  // ── Historial de cortes y variaciones ─────────────────────────────────
-  // Cada Excel procesado deja en este navegador un resumen (solo totales por meta, no el Excel).
-  // Al cargar uno nuevo se compara con el corte anterior; si cambió el certificado, el compromiso
-  // o el devengado, se arma un mensaje para copiar y pegar (no va en la lámina). El PIM no se compara.
-  const HIST = "reporteFen.historial", MAX_HIST = 120;
-  const MEDIDAS = [["cert", "Certificado"], ["comp", "Compromiso"], ["dev", "Devengado"]];
-  let VARIAC = null;
-  const r2 = v => Math.round(v * 100) / 100;
-
-  function resumenCorte(huella) {
-    const acts = [...new Set(REG.map(r => r.c.activ_obra_accinv))].sort(natural);
-    const act = acts.find(a => a.startsWith(ACT_FEN)) || acts[0];
-    const g = new Map(), tot = { pim: 0, cert: 0, comp: 0, dev: 0 };
-    for (const r of REG) {
-      if (r.c.activ_obra_accinv !== act) continue;
-      const k = r.c.sec_func || "(sin dato)";
-      if (!g.has(k)) g.set(k, { k, n: nombreGrupo("sec_func", k, r), cert: 0, comp: 0, dev: 0 });
-      const x = g.get(k);
-      x.cert += r.cert; x.comp += r.comp; x.dev += r.dev;
-      tot.pim += r.pim; tot.cert += r.cert; tot.comp += r.comp; tot.dev += r.dev;
-    }
-    const grupos = [...g.values()].sort((a, b) => natural(a.k, b.k)).map(x => ({ ...x, cert: r2(x.cert), comp: r2(x.comp), dev: r2(x.dev) }));
-    return { t: $("fDatos").value || ARCHIVO.procesado, act, h: huella, pim: r2(tot.pim), cert: r2(tot.cert), comp: r2(tot.comp), dev: r2(tot.dev), g: grupos };
-  }
-
-  function registrarCorte(file) {
-    const hist = leerLS(HIST, []);
-    const nuevo = resumenCorte(`${file.name}|${file.size}|${file.lastModified}`);
-    const mismos = hist.filter(x => x.act === nuevo.act);
-    const ultimo = mismos[mismos.length - 1];
-    let ref;
-    if (ultimo && ultimo.h === nuevo.h) {
-      ref = mismos[mismos.length - 2];           // es el mismo Excel otra vez: se compara con el corte de antes
-    } else {
-      ref = ultimo;
-      hist.push(nuevo);
-      guardarLS(HIST, hist.slice(-MAX_HIST));
-    }
-    VARIAC = ref ? variaciones(ref, nuevo) : null;
-    $("btnVar").hidden = !VARIAC;
-  }
-
-  function variaciones(ant, act) {
-    const soles0 = v => `S/ ${miles(Math.abs(v))}`;
-    const conSigno = d => `${d > 0 ? "+" : "−"}${soles0(d)}`;
-    const bloques = [];
-    for (const [m, nombre] of MEDIDAS) {
-      const d = Math.round(act[m]) - Math.round(ant[m]);
-      if (!d) continue;
-      const previos = new Map(ant.g.map(x => [x.k, x]));
-      const metas = act.g.map(x => [x.n, Math.round(x[m]) - Math.round((previos.get(x.k) || {})[m] || 0)])
-        .concat(ant.g.filter(x => !act.g.some(y => y.k === x.k)).map(x => [x.n, -Math.round(x[m])]))
-        .filter(([, dd]) => dd);
-      bloques.push(
-        `*${nombre}: ${d > 0 ? "subió" : "bajó"} ${soles0(d)}*\n` +
-        `Pasó de ${soles0(ant[m])} (${fpct(pct(ant[m], ant.pim))}) a ${soles0(act[m])} (${fpct(pct(act[m], act.pim))})` +
-        metas.map(([n, dd]) => `\n   • ${n}: ${conSigno(dd)}`).join(""));
-    }
-    if (!bloques.length) return null;
-    return { ant: ant.t, act: act.t,
-      texto: `*Reporte FEN – variaciones*\nDel ${fechaHora(ant.t)} al ${fechaHora(act.t)}\n\n${bloques.join("\n\n")}` };
-  }
-
-  function abrirVariaciones() {
-    if (!VARIAC) return;
-    $("mTitulo").textContent = "Variaciones respecto al corte anterior";
-    const filas = VARIAC.texto.split("\n").length + 1;
-    $("mCuerpo").innerHTML = `<p class="m-nota">Comparado con el reporte procesado el ${esc(fechaHora(VARIAC.ant))} · Copia el mensaje y pégalo donde lo necesites.</p>
-      <textarea class="var-txt" id="varTxt" readonly rows="${filas}">${esc(VARIAC.texto)}</textarea>
-      <div class="var-acc"><button type="button" class="var-copiar" id="varCopiar">Copiar mensaje</button></div>`;
-    $("modal").hidden = false;
-    $("varCopiar").addEventListener("click", () => {
-      const ta = $("varTxt"), b = $("varCopiar");
-      const ok = () => { b.textContent = "Copiado ✓"; setTimeout(() => { b.textContent = "Copiar mensaje"; }, 2500); };
-      const manual = () => { ta.focus(); ta.select(); let r = false; try { r = document.execCommand("copy"); } catch { /* nada */ } if (r) ok(); else b.textContent = "Selecciona el texto y copia con Ctrl+C"; };
-      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(VARIAC.texto).then(ok, manual);
-      else manual();
-    });
-  }
-
-  function mostrarSinVariaciones(t) {
-    $("mTitulo").textContent = "Sin variaciones";
-    $("mCuerpo").innerHTML = `<p class="m-nota">El certificado, el compromiso y el devengado son iguales a los del reporte del ${esc(fechaHora(t) || "archivo elegido")}.</p>`;
-    $("modal").hidden = false;
-  }
-
-  function avisoModal(titulo, texto) {
-    $("mTitulo").textContent = titulo;
-    $("mCuerpo").innerHTML = `<p class="m-nota">${esc(texto)}</p>`;
-    $("modal").hidden = false;
-  }
-
-  // ── Comparar con un Excel exportado antes por esta misma página ───────
-  const normal = s => txt(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ");
-
-  // Excel exportado antes de la hoja oculta "_corte": se lee la tabla visible
-  function leerExportadoVisible(wb, archivo, actual) {
-    const ws = wb.Sheets.Reporte || wb.Sheets[wb.SheetNames[0]];
-    if (!ws) return null;
-    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
-    const h = aoa.findIndex(f => f && ["concepto", "categoria"].includes(normal(f[0])));
-    if (h < 0) return null;
-    const cab = aoa[h].map(normal);
-    const ix = re => cab.findIndex(c => re.test(c));
-    const iPim = ix(/^pim/), iCert = ix(/^certificado/), iComp = ix(/^compromiso/), iDev = ix(/^(devengado|ejecucion)/);
-    if ([iPim, iCert, iComp, iDev].some(i => i < 0)) return null;
-    const corte = { act: actual.act, g: [] };
-    for (const f of aoa.slice(h + 1)) {
-      if (!f || f[0] == null) continue;
-      const v = { pim: num(f[iPim]), cert: num(f[iCert]), comp: num(f[iComp]), dev: num(f[iDev]) };
-      if (normal(f[0]) === "total") { Object.assign(corte, v); break; }
-      const igual = actual.g.find(x => normal(x.n) === normal(f[0]));
-      corte.g.push({ k: igual ? igual.k : txt(f[0]), n: igual ? igual.n : oracion(txt(f[0])), cert: v.cert, comp: v.comp, dev: v.dev });
-    }
-    if (corte.pim == null) return null;
-    // fecha y hora: del título ("… – 18/11/2026 - 19:30 p.m."), del nombre del archivo o de cuándo se guardó
-    const titulo = txt(aoa[0] && aoa[0][0]) + " " + txt(aoa[1] && aoa[1][0]);
-    let m = titulo.match(/(\d{2})\/(\d{2})\/(\d{4})(?:\s*-\s*(\d{2}):(\d{2}))?/);
-    if (m) corte.t = `${m[3]}-${m[2]}-${m[1]}T${m[4] || "00"}:${m[5] || "00"}`;
-    else if ((m = archivo.name.match(/(\d{2})\.(\d{2})\.(\d{4})-(\d{2})\.(\d{2})/))) corte.t = `${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}`;
-    else corte.t = marcaDe(new Date(archivo.lastModified));
-    return corte;
-  }
-
-  async function compararCon(file) {
-    try {
-      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
-      const actual = resumenCorte(null);
-      let ant = null;
-      const oculta = wb.Sheets._corte;
-      if (oculta && oculta.A1 && oculta.A1.v === "corte_fen_v1" && oculta.B1) ant = JSON.parse(oculta.B1.v);
-      else ant = leerExportadoVisible(wb, file, actual);
-      if (!ant) {
-        avisoModal("No se pudo comparar", "Ese archivo no es un Excel exportado por esta página (botón Excel). Elige uno de esos.");
-        return;
-      }
-      const v = variaciones(ant, actual);
-      if (!v) { mostrarSinVariaciones(ant.t); return; }
-      VARIAC = v;
-      $("btnVar").hidden = false;
-      abrirVariaciones();
-    } catch (e) {
-      console.error(e);
-      avisoModal("No se pudo comparar", "No se pudo leer el archivo: " + (e.message || e));
     }
   }
 
@@ -498,9 +349,6 @@
     ws["!cols"] = [{ wch: 48 }, ...X.map(() => ({ wch: 15 }))];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Reporte");
-    // hoja oculta con el corte exacto (por meta, sin filtros) para el botón "Comparar"
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["corte_fen_v1", JSON.stringify(resumenCorte(null))]]), "_corte");
-    wb.Workbook = { Sheets: [{}, { Hidden: 1 }] };
     XLSX.writeFile(wb, nombreSalida("xlsx"));
   }
 
@@ -687,17 +535,14 @@
     escalar();
   });
   $("btnOtro").addEventListener("click", () => mostrar(false));
-  $("btnVar").addEventListener("click", abrirVariaciones);
   $("btnXlsx").addEventListener("click", exportarExcel);
   $("btnPng").addEventListener("click", exportarPng);
   $("btnPdf").addEventListener("click", exportarPdf);
-  $("btnComparar").addEventListener("click", () => $("archivoComp").click());
-  $("archivoComp").addEventListener("change", e => { const f = e.target.files[0]; if (f) compararCon(f); e.target.value = ""; });
   $("btnEnlace").addEventListener("click", copiarEnlace);
   $("btnEnlace").textContent = textoBoton();
   $("btnReset").addEventListener("click", () => { prepararControles(); render(); });
   // borra las preferencias que guardaban versiones anteriores (actividad / agrupación)
-  ["reporteFen.act", "reporteFen.n1", "reporteFen.n2"].forEach(k => { try { localStorage.removeItem(k); } catch { /* nada */ } });
+  ["reporteFen.act", "reporteFen.n1", "reporteFen.n2", "reporteFen.historial"].forEach(k => { try { localStorage.removeItem(k); } catch { /* nada */ } });
   window.addEventListener("hashchange", abrirEnlace);
   $("btnPresentar").addEventListener("click", () => {
     const el = $("escenario");
